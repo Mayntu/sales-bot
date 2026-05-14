@@ -1,0 +1,168 @@
+gym:
+  name: Underground Gym Astana
+  network_status: Крупнейшая сеть фитнес-клубов в Астане
+hall_types:
+  gym:
+    label: GYM
+    description: Стандартные залы. Тренажёрный зал, кардио, свободные веса.
+  big:
+    label: BIG
+    description: Большие залы. Всё из GYM + финская сауна на некоторых адресах.
+  big_plus:
+    label: BIG+
+    description: 'Очень большие залы. Всё из BIG + групповые занятия (йога, стретчинг,
+      фитнес-микс). ВАЖНО: на групповые нужна предварительная запись. Групповые ТОЛЬКО
+      в BIG+.
+
+      '
+locations:
+- address: ул. Майлина
+  hall_type: big_plus
+  sauna: true
+  notes: 'Групповые классы: йога, стретчинг, фитнес-микс. Нужна запись.'
+- address: ул. Мухамедханова, 25/31
+  hall_type: big_plus
+  sauna: true
+  notes: 'Групповые классы: йога, стретчинг, фитнес-микс. Нужна запись.'
+- address: пр. Туран, 60
+  hall_type: big
+  sauna: true
+- address: ул. Нажимеденова, 16
+  hall_type: big
+  sauna: false
+  notes: Формат BIG, премиум-оборудование
+- address: ул. Жанибека Тархана, 17
+  hall_type: gym
+  sauna: false
+- address: пр. Улы Дала, 55
+  hall_type: gym
+  sauna: false
+  notes: Функциональный тренинг
+- address: ул. Кенесары, 8
+  hall_type: gym
+  sauna: false
+- address: пр. Мангилик Ел, 19/2
+  hall_type: gym
+  sauna: false
+- address: ул. Сатпаева, 22
+  hall_type: gym
+  sauna: false
+- address: ул. Сакена Сейфуллина, 1
+  hall_type: gym
+  sauna: false
+- address: пр. Аль-Фараби, 7/1
+  hall_type: gym
+  sauna: false
+memberships:
+- id: gold
+  name: Золотая карта
+  base_price: 180000
+  access: 'Все филиалы: GYM + BIG + BIG+'
+  includes:
+  - Безлимитное посещение всех залов сети
+  - InBody чекап — анализ состава тела (% жира, воды, мышц)
+  - Дежурный тренер включён
+  - Заморозка до 30 дней
+  sauna_access: true
+  group_classes_access: true
+- id: silver_plus
+  name: Серебряная+ карта
+  base_price: 130000
+  access: Все GYM + BIG залы (без BIG+, без групповых)
+  includes:
+  - Безлимитное посещение GYM и BIG залов
+  - Заморозка до 30 дней
+  sauna_access: true
+  group_classes_access: false
+- id: silver
+  name: Серебряная карта
+  base_price: 100000
+  access: Только GYM залы
+  includes:
+  - Безлимитное посещение GYM залов
+  - Заморозка до 30 дней
+  sauna_access: false
+  group_classes_access: false
+trainers:
+  duty:
+    name: Дежурный тренер
+    included_in: Все абонементы (включён в цену)
+    description: 'Всегда в зале. Подойдёт, подскажет технику, покажет упражнение.
+      Не персональное ведение, но надёжная поддержка.
+
+      '
+    sell_tip: Идеально для тех кто хочет поддержку но не готов к персональному.
+  personal:
+    name: Персональный тренер
+    included_in: Только в оффере 11+1 (первый месяц)
+    pricing: Оплачивается отдельно, у каждого тренера свой прайс
+    description: 'Весь фокус на тебе. Тренер рядом всю тренировку: техника, программа,
+      мотивация, корректировка под твои цели.
+
+      '
+payment:
+  installment:
+    available: true
+    partners: Kaspi.kz, Halyk Bank, Jusan
+    terms: 0-0-12 (без переплаты на 12 месяцев)
+    note: При некоторых способах оплаты возможна комиссия до 10%
+  two_installments:
+    available: true
+    description: 'Оплата в 2 транша: 50% сразу, 50% через месяц'
+    warning: Если второй транш не оплачен — абонемент замораживается автоматически
+freeze:
+  max_days: 30
+  description: Заморозка до 30 дней — при болезни или отъезде
+hooks:
+- Первая пробная тренировка — платно, 5 000 тг
+- InBody чекап тела включён в Золотую карту (% жира, воды, мышечной массы)
+- 'Единый билет: одна карта — доступ ко всем залам города'
+- Заморозка до 30 дней — абонемент не горит
+- Рассрочка 0-0-12 через Kaspi, Halyk, Jusan
+- Оплата в 2 транша если нужно
+daily_discounts:
+  date: '2026-05-14'
+  discounts:
+  - membership_id: gold
+    discounted_price: 160000
+    label: Золотая −11% только сегодня
+  - membership_id: silver_plus
+    discounted_price: 110000
+    label: Серебряная+ -15% акция дня
+temporary_memberships:
+- id: spring_cut
+  name: Spring Cut
+  base_price: 89000
+  start_date: '2026-04-01'
+  end_date: '2026-06-30'
+  access: GYM + BIG
+  includes:
+  - Безлимит GYM+BIG
+  - 1 InBody в месяц
+  label: Сезонный оффер на 3 месяца
+- id: gold_3_9
+  name: 3+9
+  base_price: 150000
+  start_date: '2026-01-01'
+  end_date: '2026-12-31'
+  access: 'Все филиалы: GYM + BIG + BIG+'
+  includes:
+  - Золотая карта (доступ ко всем залам)
+  - 3 месяца с дежурным тренером
+  - 9 месяцев самостоятельно
+  - 'Как продавать: дежурный всегда в зале — подскажет технику первые 3 месяца, без
+    ощущения «один с железом с нуля».'
+  label: 'Пакет 3+9: золотой доступ + 3 мес. дежурный + 9 мес. самостоятельно'
+- id: gold_11_1
+  name: 11+1
+  base_price: 160000
+  start_date: '2026-01-01'
+  end_date: '2026-12-31'
+  access: 'Все филиалы: GYM + BIG + BIG+'
+  includes:
+  - Золотая карта (доступ ко всем залам)
+  - 1 месяц с персональным тренером
+  - 11 месяцев самостоятельно
+  - 'Как продавать: первый месяц с персональным — техника и программа под цель, потом
+    11 месяцев уверенно сам.'
+  label: 'Пакет 11+1: золотой доступ + 1 мес. персональный + 11 мес. самостоятельно'

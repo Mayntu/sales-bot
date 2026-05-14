@@ -1,0 +1,102 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gymbot
+      POSTGRES_PASSWORD: gymbot
+      POSTGRES_DB: gymbot
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gymbot -d gymbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./api
+    # Apply pending migrations before serving (schema must match ORM, e.g. celery_task_id).
+    command: >
+      sh -c "python scripts/docker_migrate.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    env_file: .env
+    volumes:
+      - ./api:/app
+      - ./club_data:/app/club_data
+    ports: ["8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build: ./bot
+    command: python -m app.main
+    env_file: .env
+    volumes:
+      - ./bot:/app
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Worker dedicated to follow-up chains (ETA-scheduled tasks)
+  worker_followup:
+    build: ./api
+    command: >
+      celery -A app.tasks.celery_app worker
+      -Q followup
+      --concurrency=4
+      -l info
+      -n worker_followup@%h
+    env_file: .env
+    volumes:
+      - ./api:/app
+      - ./club_data:/app/club_data
+    depends_on:
+      api: { condition: service_healthy }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # Worker dedicated to Telegram notification sends
+  worker_notifications:
+    build: ./api
+    command: >
+      celery -A app.tasks.celery_app worker
+      -Q notifications
+      --concurrency=4
+      -l info
+      -n worker_notifications@%h
+    env_file: .env
+    volumes:
+      - ./api:/app
+      - ./club_data:/app/club_data
+    depends_on:
+      api: { condition: service_healthy }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  beat:
+    build: ./api
+    command: celery -A app.tasks.celery_app beat -l info
+    env_file: .env
+    volumes:
+      - ./api:/app
+      - ./club_data:/app/club_data
+    depends_on:
+      api: { condition: service_healthy }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  pgdata:

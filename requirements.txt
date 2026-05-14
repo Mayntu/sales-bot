@@ -1,0 +1,24 @@
+# Web
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# Telegram
+python-telegram-bot>=21.6
+
+# AI
+openai>=1.57.0
+
+# DB
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+psycopg2-binary>=2.9.10
+
+# Config
+pydantic-settings>=2.6.0
+
+# Queue
+celery[redis]>=5.4.0
+redis>=5.2.0
+
+# HTTP client (health / internal)
+httpx>=0.28.0
