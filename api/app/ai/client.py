@@ -8,8 +8,10 @@ Design decisions:
   - Retries: tenacity retries the raw API call up to 2 times (3 total attempts)
     with exponential backoff. max_retries=0 on the SDK level so tenacity is
     the single source of truth for retry logic.
-  - Fallback: if all retries fail the exception is caught in generate() and a
-    safe Russian fallback message is returned — the bot never goes silent.
+  - Model routing: only NEW uses ``openai_model_light`` (e.g. gpt-4o-mini). QUALIFY
+    stays on the main model: the user is still in QUALIFY while the bot gives long
+    card overviews and handles questions, so routing by ``current_state`` would
+    otherwise send almost the whole dialogue through mini.
 """
 
 from __future__ import annotations
@@ -29,6 +31,9 @@ from app.domain.conversations.service import normalize_next_state
 from app.domain.users.models import UserState
 
 log = structlog.get_logger(__name__)
+
+# Только первый этап: привет + имя/цель. QUALIFY+ — main_model (см. docstring модуля).
+_LIGHT_MODEL_STATES: frozenset[UserState] = frozenset({UserState.NEW})
 
 FALLBACK_REPLY = "Прости, что-то пошло не так. Напиши ещё раз или попробуй чуть позже 🙂"
 
@@ -66,10 +71,12 @@ class AIClient:
 
     Create once via init_ai_client() and inject with get_ai_client().
     AsyncOpenAI reuses an internal httpx.AsyncClient with connection pooling.
+    Маршрутизация модели по этапу — см. ``_LIGHT_MODEL_STATES`` и Settings.
     """
 
-    def __init__(self, api_key: str, model: str) -> None:
-        self.model = model
+    def __init__(self, api_key: str, *, main_model: str, light_model: str) -> None:
+        self._main_model = main_model
+        self._light_model = light_model
         self._client = AsyncOpenAI(
             api_key=api_key,
             timeout=30.0,
@@ -78,14 +85,19 @@ class AIClient:
 
     # ── Internal: retried raw API call ───────────────────────────────────────
 
+    def _model_for_state(self, state: UserState) -> str:
+        return self._light_model if state in _LIGHT_MODEL_STATES else self._main_model
+
     @retry(
         stop=stop_after_attempt(3),  # 1 initial + 2 retries
         wait=wait_exponential(multiplier=1, min=1, max=8),
         reraise=True,
     )
-    async def _call_api(self, system_prompt: str, messages: list[dict]) -> tuple[dict, dict | None]:
+    async def _call_api(
+        self, system_prompt: str, messages: list[dict], *, model: str
+    ) -> tuple[dict, dict | None]:
         res = await self._client.chat.completions.create(
-            model=self.model,
+            model=model,
             messages=[{"role": "system", "content": system_prompt}, *messages],
             response_format={"type": "json_object"},
             temperature=0.85,
@@ -120,21 +132,22 @@ class AIClient:
         request_scope: str = "chat",
     ) -> AIResult:
         """request_scope distinguishes log source, e.g. ``chat`` vs ``followup``."""
+        model = self._model_for_state(current_state)
         try:
-            data, usage = await self._call_api(system_prompt, messages)
+            data, usage = await self._call_api(system_prompt, messages, model=model)
 
             if usage is not None:
                 log.info(
                     "openai_token_usage",
                     request_scope=request_scope,
-                    model=self.model,
+                    model=model,
                     **usage,
                 )
             else:
                 log.warning(
                     "openai_usage_missing",
                     request_scope=request_scope,
-                    model=self.model,
+                    model=model,
                     message="completion response had no usage field",
                 )
         except Exception as exc:
@@ -145,7 +158,7 @@ class AIClient:
                 log.error(
                     "openai_generate_failed",
                     request_scope=request_scope,
-                    model=self.model,
+                    model=model,
                     fallback=True,
                     error=str(exc),
                     error_type=type(exc).__name__,
@@ -189,7 +202,11 @@ def init_ai_client() -> AIClient:
     """Call once during application lifespan startup."""
     global _instance
     s = get_settings()
-    _instance = AIClient(api_key=s.openai_api_key, model=s.openai_model)
+    _instance = AIClient(
+        api_key=s.openai_api_key,
+        main_model=s.openai_model,
+        light_model=s.openai_model_light,
+    )
     return _instance
 
 

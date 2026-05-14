@@ -9,7 +9,8 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ''
-    openai_model: str = 'gpt-4o'
+    openai_model: str = 'gpt-4o'  # QUALIFY, PRESENT, HANDLE_OBJECTION, CLOSE, follow-ups, …
+    openai_model_light: str = 'gpt-4o-mini'  # только NEW (привет); QUALIFY+ на openai_model
 
     # PostgreSQL (async — FastAPI; sync URL built at runtime for Celery)
     database_url: str = 'postgresql+asyncpg://gymbot:gymbot@db:5432/gymbot'
@@ -32,7 +33,7 @@ class Settings(BaseSettings):
 
     # App
     club_info_path: str = 'club_data/club_info.yaml'
-    max_dialog_messages: int = 20
+    max_dialog_messages: int = 8
 
     # Rate limiting: max messages per chat per minute
     chat_rate_limit_per_minute: int = 20

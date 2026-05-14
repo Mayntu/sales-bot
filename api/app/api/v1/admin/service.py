@@ -134,8 +134,20 @@ class AdminService:
             ).scalar()
             or 0
         )
+        handoffs = int(
+            (
+                await self._db.execute(
+                    select(func.count()).select_from(User).where(User.manager_handoff_at.isnot(None))
+                )
+            ).scalar()
+            or 0
+        )
+        conv = round((handoffs / total) if total else 0, 4)
+        pay_rate = round((paid / handoffs) if handoffs else 0, 4)
         return StatsResponse(
             users_total=total,
+            manager_handoffs=handoffs,
             paid=paid,
-            conversion=round((paid / total) if total else 0, 4),
+            conversion=conv,
+            payment_rate=pay_rate,
         )

@@ -1,9 +1,5 @@
 """
-club_context.py — загрузка и форматирование данных клуба для AI-промпта.
-
-to_prompt_text() возвращает структурированный текст, удобный для модели:
-каждый абонемент — единый блок со всеми свойствами, хуки идут отдельным
-приоритетным разделом, цена разбита на день и на рассрочку.
+club_context.py — данные клуба для промпта (сжатый текст, минимум токенов).
 """
 
 from __future__ import annotations
@@ -18,8 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 log = logging.getLogger(__name__)
 
 
-# ─── Pydantic модели ────────────────────────────────────────────────────────
-
 class DailyDiscount(BaseModel):
     membership_id: str
     discounted_price: int
@@ -27,12 +21,23 @@ class DailyDiscount(BaseModel):
 
 
 class DailyDiscounts(BaseModel):
-    """valid_on маппится из YAML-поля `date` — нельзя называть поле `date`, затеняет тип."""
-
     model_config = ConfigDict(populate_by_name=True)
 
     valid_on: date | None = Field(default=None, alias="date")
     discounts: list[DailyDiscount] = Field(default_factory=list)
+
+
+def _trunc(s: str, n: int) -> str:
+    s = str(s).replace("\n", " ").strip()
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _inc_short(items: list | None, max_items: int = 2, max_chars: int = 100) -> str:
+    if not items:
+        return "—"
+    parts = [_trunc(x, 55) for x in items[:max_items]]
+    out = "; ".join(parts)
+    return _trunc(out, max_chars)
 
 
 class ClubContext(BaseModel):
@@ -40,205 +45,112 @@ class ClubContext(BaseModel):
     raw: dict
     daily_discounts: DailyDiscounts = DailyDiscounts()
 
-    # ── публичный метод для промпта ──────────────────────────────────────────
-
     def to_prompt_text(self) -> str:
-        parts: list[str] = []
+        parts = [
+            self._hdr(),
+            self._cards(),
+            self._bundles(),
+            self._temporary(),
+            self._trainers_pay_misc(),
+            self._discounts(),
+            self._hooks_yaml(),
+        ]
+        return "\n".join(p for p in parts if p.strip())
 
-        parts.append(self._section_memberships())
-        parts.append(self._section_bundles())
+    def _hdr(self) -> str:
+        n = len(self.raw.get("locations") or [])
+        return (
+            f"▌КЛУБ {self.gym_name}\n"
+            f"Точек: {n}. Один абонемент на сеть. Типы залов: GYM / BIG / BIG+ "
+            f"(групповые только BIG+, запись). Бассейна нет."
+        )
 
-        temp = self._section_temporary()
-        if temp:
-            parts.append(temp)
-
-        parts.append(self._section_trainers())
-        parts.append(self._section_payment())
-        parts.append(self._section_extras())
-        parts.append(self._section_discounts())
-        parts.append(self._section_hooks())
-
-        return "\n\n".join(p for p in parts if p.strip())
-
-    # ── приватные секции ─────────────────────────────────────────────────────
-
-    def _section_memberships(self) -> str:
-        lines = ["▌ АБОНЕМЕНТЫ — ЦЕНЫ И ЧТО ВХОДИТ"]
+    def _cards(self) -> str:
+        lines = ["▌КАРТЫ id·название·база·доступ·сауна·группы·InBody"]
         for m in self.raw.get("memberships", []):
-            base = m.get("base_price", 0)
-            price_line = self._price_line(m)
-            per_day = round(base / 365)
-            monthly = round(base / 12)
-            inc = " / ".join(m.get("includes", []))
-            sauna = "сауна есть" if m.get("sauna_access") else "сауны нет"
-            groups = (
-                "групповые классы — ДА (BIG+, нужна запись)"
-                if m.get("group_classes_access")
-                else "групповых нет"
-            )
-            inbody = (
-                "InBody чекап тела ВКЛЮЧЁН (% жира / воды / мышц — видишь прогресс в цифрах)"
-                if any("InBody" in x for x in m.get("includes", []))
-                else ""
-            )
-            lines.append(
-                f"\n{m['name']} (id: {m.get('id','')})\n"
-                f"  Цена: {price_line}\n"
-                f"  В день: ~{per_day} тг | Рассрочка 0-0-12: ~{monthly} тг/мес\n"
-                f"  Доступ: {m.get('access','')}\n"
-                f"  Включает: {inc}\n"
-                f"  {sauna} | {groups}"
-                + (f"\n  {inbody}" if inbody else "")
-            )
+            mid = m.get("id", "")
+            nm = _trunc(m.get("name", ""), 22)
+            pl = self._price_line(m)
+            acc = _trunc(m.get("access", ""), 48)
+            sn = "да" if m.get("sauna_access") else "нет"
+            gr = "да" if m.get("group_classes_access") else "нет"
+            ib = "да" if any("InBody" in str(x) for x in (m.get("includes") or [])) else "нет"
+            lines.append(f"{mid}·{nm}·{pl}·{_trunc(acc, 44)}·сауна:{sn}·группы:{gr}·InBody:{ib}")
         return "\n".join(lines)
 
-    def _section_bundles(self) -> str:
+    def _bundles(self) -> str:
         bundles = self.raw.get("bundle_memberships") or []
         if not bundles:
             return ""
-        lines = ["▌ ПАКЕТНЫЕ АБОНЕМЕНТЫ"]
+        lines = ["▌ПАКЕТЫ id·название·цена·вкратце"]
         for b in bundles:
-            base = b.get("base_price", 0)
-            price_line = self._price_line(b)
-            monthly = round(base / 12)
-            inc = " / ".join(b.get("includes", []))
-            tip = b.get("sell_tip", "").strip()
-            lines.append(
-                f"\n{b['name']} (id: {b.get('id','')})\n"
-                f"  Цена: {price_line} | Рассрочка 0-0-12: ~{monthly} тг/мес\n"
-                f"  Включает: {inc}\n"
-                f"  Как продавать: {tip}"
-            )
+            inc = _inc_short(b.get("includes"), 2, 90)
+            lines.append(f"{b.get('id','')}·{_trunc(b.get('name',''), 16)}·{self._price_line(b)}·{inc}")
         return "\n".join(lines)
 
-    def _section_temporary(self) -> str:
-        items = self.raw.get("temporary_memberships", [])
+    def _temporary(self) -> str:
+        items = self.raw.get("temporary_memberships") or []
         if not items:
             return ""
-        lines = ["▌ ВРЕМЕННЫЕ ОФФЕРЫ (ограниченный срок)"]
+        lines = ["▌ВРЕМЕННЫЕ id·название·цена·период·статус·лейбл"]
         today = date.today()
         for t in items:
-            start_s = t.get("start_date")
-            end_s = t.get("end_date")
+            start_s, end_s = t.get("start_date"), t.get("end_date")
             try:
-                start_d = date.fromisoformat(str(start_s)) if start_s else None
-                end_d = date.fromisoformat(str(end_s)) if end_s else None
+                sd = date.fromisoformat(str(start_s)) if start_s else None
+                ed = date.fromisoformat(str(end_s)) if end_s else None
             except ValueError:
-                start_d, end_d = None, None
-            is_active = (start_d is None or start_d <= today) and (end_d is None or today <= end_d)
-            status = "✅ АКТУАЛЬНО ПРЯМО СЕЙЧАС" if is_active else "⏸ вне периода действия"
-            base = t.get("base_price", 0)
-            monthly = round(base / 12) if base else 0
-            inc = " / ".join(t.get("includes", []))
+                sd, ed = None, None
+            ok = (sd is None or sd <= today) and (ed is None or today <= ed)
+            st = "АКТ" if ok else "вне"
             lines.append(
-                f"\n{t.get('name','Оффер')} (id: {t.get('id','')})\n"
-                f"  Статус: {status}\n"
-                f"  Цена: {self._price_line(t)}"
-                + (f" | Рассрочка: ~{monthly} тг/мес" if monthly else "")
-                + f"\n  Период: {start_s or '?'} — {end_s or '?'}\n"
-                f"  Включает: {inc}\n"
-                f"  {t.get('label','')}"
+                f"{t.get('id','')}·{_trunc(t.get('name',''), 14)}·{self._price_line(t)}·"
+                f"{start_s}—{end_s}·{st}·{_trunc(t.get('label') or '', 50)}"
             )
         return "\n".join(lines)
 
-    def _section_trainers(self) -> str:
-        trainers = self.raw.get("trainers", {})
-        lines = ["▌ ТРЕНЕРЫ"]
-        if duty := trainers.get("duty"):
-            lines.append(
-                f"Дежурный тренер — включён во ВСЕ абонементы.\n"
-                f"  {str(duty.get('description','')).strip()}\n"
-                f"  Совет по продаже: {duty.get('sell_tip','')}"
-            )
-        if personal := trainers.get("personal"):
-            lines.append(
-                f"Персональный тренер — только в оффере 11+1 (первый месяц).\n"
-                f"  {str(personal.get('description','')).strip()}\n"
-                f"  Прайс у каждого тренера индивидуальный."
-            )
+    def _trainers_pay_misc(self) -> str:
+        lines: list[str] = ["▌ТРЕНЕРЫ И ОПЛАТА"]
+        tr = self.raw.get("trainers") or {}
+        if tr.get("duty"):
+            lines.append("Дежурный: во все карты, в зале, не персонал.")
+        if tr.get("personal"):
+            lines.append("Персональный: только оффер 11+1 (1-й мес), дальше свой прайс.")
+        pay = self.raw.get("payment") or {}
+        if inst := pay.get("installment"):
+            lines.append(f"Рассрочка: {inst.get('terms','')} {inst.get('partners','')}")
+        if two := pay.get("two_installments"):
+            lines.append(f"2 транша: {_trunc(str(two.get('description','')), 70)}")
+        if fr := self.raw.get("freeze"):
+            lines.append(f"Заморозка до {fr.get('max_days', 30)} дн.")
+        sauna_addrs = []
+        for loc in self.raw.get("locations", []) or []:
+            if loc.get("sauna"):
+                sauna_addrs.append(_trunc(str(loc.get("address", "")), 22))
+        if sauna_addrs:
+            lines.append("Сауна (есть не везде): " + ", ".join(sauna_addrs[:5]))
+        lines.append("Групповые классы: только BIG+, запись.")
         return "\n".join(lines)
 
-    def _section_payment(self) -> str:
-        payment = self.raw.get("payment", {})
-        lines = ["▌ ОПЛАТА И РАССРОЧКА"]
-        if inst := payment.get("installment"):
-            lines.append(
-                f"Рассрочка {inst.get('terms','')} через {inst.get('partners','')}.\n"
-                f"  {inst.get('note','')}"
-            )
-        if two := payment.get("two_installments"):
-            lines.append(
-                f"Оплата в 2 транша: {two.get('description','')}\n"
-                f"  ВНИМАНИЕ: {two.get('warning','')}"
-            )
-        return "\n".join(lines)
-
-    def _section_extras(self) -> str:
-        lines = ["▌ ДОПОЛНИТЕЛЬНО"]
-        if freeze := self.raw.get("freeze"):
-            lines.append(f"Заморозка до {freeze.get('max_days', 30)} дней — абонемент не сгорает при болезни или отъезде.")
-        sauna_locs = [
-            loc["address"]
-            for loc in self.raw.get("locations", [])
-            if loc.get("sauna")
-        ]
-        if sauna_locs:
-            lines.append(f"Сауна есть на: {', '.join(sauna_locs)}.")
-        group_locs = [
-            f"{loc['address']} ({', '.join(loc.get('notes','').split('.') or [])})"
-            for loc in self.raw.get("locations", [])
-            if loc.get("hall_type") == "big_plus"
-        ]
-        if group_locs:
-            lines.append(f"Групповые классы (йога, стретчинг, фитнес-микс) только на BIG+ залах: {', '.join(group_locs)}.")
-        return "\n".join(lines)
-
-    def _section_discounts(self) -> str:
+    def _discounts(self) -> str:
         dd = self.daily_discounts
         today = date.today()
         if dd.valid_on == today and dd.discounts:
-            lines = [f"▌ СКИДКИ СЕГОДНЯ {today.isoformat()} — ИСПОЛЬЗУЙ АКТИВНО, это мощный триггер:"]
+            parts = [f"▌СКИДКИ {today.isoformat()}"]
             for d in dd.discounts:
-                price_fmt = f"{d.discounted_price:,}".replace(",", " ")
-                lines.append(f"  {d.label}: {price_fmt} тг")
-            return "\n".join(lines)
-        return "▌ СКИДОК НА СЕГОДНЯ НЕТ — работай с базовыми ценами, рассрочкой и хуками."
+                pf = f"{d.discounted_price:,}".replace(",", " ")
+                parts.append(f"{d.membership_id}: {pf} тг — {_trunc(d.label, 60)}")
+            return "\n".join(parts)
+        return "▌СКИДКИ: на сегодня нет (дата в конфиге не сегодня или список пуст)."
 
-    def _section_hooks(self) -> str:
-        today = date.today()
-        lines = ["▌ ХУКИ — ВПЛЕТАЙ В ДИАЛОГ, НЕ ЖДИ ОСОБОГО МОМЕНТА"]
-
-        # Active temporary offers go first — highest priority sales trigger
-        active_temps = []
-        for t in self.raw.get("temporary_memberships", []):
-            try:
-                start_d = date.fromisoformat(str(t["start_date"])) if t.get("start_date") else None
-                end_d = date.fromisoformat(str(t["end_date"])) if t.get("end_date") else None
-            except ValueError:
-                start_d, end_d = None, None
-            if (start_d is None or start_d <= today) and (end_d is None or today <= end_d):
-                active_temps.append(t)
-
-        if active_temps:
-            lines.append("  🔴 АКТИВНЫЕ ОФФЕРЫ — ПРОДАВАЙ ПРИ ПЕРВОМ РАЗГОВОРЕ О ЦЕНЕ И ПРИ 'ДОРОГО':")
-            for t in active_temps:
-                base = t.get("base_price", 0)
-                monthly = round(base / 12) if base else 0
-                end_s = t.get("end_date", "?")
-                lines.append(
-                    f"  — {t.get('name','Оффер')}: {base:,} тг (рассрочка ~{monthly} тг/мес), "
-                    f"действует до {end_s}. {t.get('label','')}"
-                )
-
-        hooks = self.raw.get("hooks", [])
-        if hooks:
-            lines.append("  Остальные хуки (вплетай по ситуации):")
-            for h in hooks:
-                lines.append(f"  — {h}")
-
+    def _hooks_yaml(self) -> str:
+        hooks = self.raw.get("hooks") or []
+        if not hooks:
+            return ""
+        lines = ["▌ХУКИ (из конфига, вплетай по ситуации)"]
+        for h in hooks:
+            lines.append(f"— {_trunc(h, 95)}")
         return "\n".join(lines)
-
-    # ── утилита ──────────────────────────────────────────────────────────────
 
     def _price_line(self, m: dict) -> str:
         mid = m.get("id")
@@ -247,13 +159,11 @@ class ClubContext(BaseModel):
         if mid and base and self.daily_discounts.valid_on == today and self.daily_discounts.discounts:
             for d in self.daily_discounts.discounts:
                 if d.membership_id == mid:
-                    base_fmt = f"{base:,}".replace(",", " ")
-                    disc_fmt = f"{d.discounted_price:,}".replace(",", " ")
-                    return f"{base_fmt} → {disc_fmt} тг (АКЦИЯ ДНЯ)"
-        return f"{base:,} тг".replace(",", " ") if base else "цена по запросу"
+                    bf = f"{base:,}".replace(",", " ")
+                    df = f"{d.discounted_price:,}".replace(",", " ")
+                    return f"{bf}→{df}"
+        return f"{base:,}".replace(",", " ") if base else "?"
 
-
-# ─── Загрузчик ──────────────────────────────────────────────────────────────
 
 class ClubContextLoader:
     def __init__(self, path: str = "club_data/club_info.yaml"):

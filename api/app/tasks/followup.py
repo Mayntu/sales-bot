@@ -38,7 +38,11 @@ _ai_client: AIClient | None = None
 def _get_ai_client() -> AIClient:
     global _ai_client
     if _ai_client is None:
-        _ai_client = AIClient(api_key=settings.openai_api_key, model=settings.openai_model)
+        _ai_client = AIClient(
+            api_key=settings.openai_api_key,
+            main_model=settings.openai_model,
+            light_model=settings.openai_model_light,
+        )
     return _ai_client
 
 

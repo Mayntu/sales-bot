@@ -67,5 +67,7 @@ class UpsertTemporaryMembershipsResponse(BaseModel):
 
 class StatsResponse(BaseModel):
     users_total: int
-    paid: int
-    conversion: float
+    manager_handoffs: int  # пользователи, у которых зафиксирована передача менеджеру (manager_handoff_at)
+    paid: int  # только PAID
+    conversion: float  # manager_handoffs / users_total
+    payment_rate: float  # paid / manager_handoffs при manager_handoffs > 0, иначе 0

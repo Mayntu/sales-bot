@@ -31,7 +31,7 @@ from app.domain.conversations.models import MessageRole
 from app.domain.conversations.repo import ConversationsRepo
 from app.domain.followup.repo import FollowUpRepo
 from app.domain.followup.service import FollowUpService
-from app.domain.users.models import UserState
+from app.domain.users.models import UserState, utcnow
 from app.domain.users.repo import UsersRepo
 from app.domain.users.service import UsersService
 
@@ -95,6 +95,8 @@ class ChatService:
                 f"Отлично, оформляем {product}! 🔥 "
                 f"Сейчас подключится менеджер и всё оформит — пару минут ⚡"
             )
+            if user.manager_handoff_at is None:
+                user.manager_handoff_at = utcnow()
 
         await self._conv_repo.add_message(user.id, MessageRole.assistant, reply_text)
 

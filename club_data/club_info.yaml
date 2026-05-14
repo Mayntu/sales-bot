@@ -127,8 +127,8 @@ daily_discounts:
     discounted_price: 160000
     label: Золотая −11% только сегодня
   - membership_id: silver_plus
-    discounted_price: 110000
-    label: Серебряная+ -15% акция дня
+    discounted_price: 100000
+    label: Серебряная -15% только сегодня
 temporary_memberships:
 - id: spring_cut
   name: Spring Cut
@@ -155,7 +155,7 @@ temporary_memberships:
   label: 'Пакет 3+9: золотой доступ + 3 мес. дежурный + 9 мес. самостоятельно'
 - id: gold_11_1
   name: 11+1
-  base_price: 160000
+  base_price: 155000
   start_date: '2026-01-01'
   end_date: '2026-12-31'
   access: 'Все филиалы: GYM + BIG + BIG+'

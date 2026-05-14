@@ -34,6 +34,10 @@ class User(Base):
     state: Mapped[UserState] = mapped_column(SAEnum(UserState, name='user_state', native_enum=False), default=UserState.NEW, index=True)
     goal: Mapped[str | None] = mapped_column(String(255), nullable=True)
     followup_count: Mapped[int] = mapped_column(Integer, default=0)
+    #: Первый переход в CLOSE — бот передал сделку менеджеру (не сбрасывается при WAITING_PAYMENT).
+    manager_handoff_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 

@@ -101,11 +101,15 @@ def _fmt_temp_block(data: dict[str, Any]) -> str:
 
 
 def _fmt_stats_block(data: dict[str, Any]) -> str:
+    conv = float(data.get("conversion", 0)) * 100
+    pr = float(data.get("payment_rate", 0)) * 100
     return (
         "<b>Статистика</b>\n\n"
         f"Пользователей в базе: <b>{data.get('users_total', 0)}</b>\n"
-        f"Оплатили: <b>{data.get('paid', 0)}</b>\n"
-        f"Конверсия: <b>{float(data.get('conversion', 0)) * 100:.2f}%</b>"
+        f"Передано менеджеру: <b>{data.get('manager_handoffs', 0)}</b>\n"
+        f"Оплатили (PAID): <b>{data.get('paid', 0)}</b>\n"
+        f"Конверсия: <b>{conv:.2f}%</b> <i>(передано менеджеру / все)</i>\n"
+        f"Оплата от переданных: <b>{pr:.2f}%</b>"
     )
 
 
