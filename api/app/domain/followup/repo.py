@@ -12,7 +12,9 @@ _FOLLOWUP_SCHEDULE: list[tuple[timedelta, FollowUpMessageType]] = [
     (timedelta(hours=2), FollowUpMessageType.h2),
     (timedelta(hours=5), FollowUpMessageType.h5),
     (timedelta(days=1), FollowUpMessageType.d1),
+    (timedelta(days=3), FollowUpMessageType.d3),
     (timedelta(days=7), FollowUpMessageType.d7),
+    (timedelta(days=14), FollowUpMessageType.d14),
 ]
 
 
@@ -66,3 +68,22 @@ class FollowUpRepo(AbstractRepository[FollowUpTask]):
 
         await self.db.flush()
         return tasks
+
+    async def get_next_pending_ordered(self, user_id: uuid.UUID) -> FollowUpTask | None:
+        res = await self.db.execute(
+            select(FollowUpTask)
+            .where(
+                FollowUpTask.user_id == user_id,
+                FollowUpTask.status == FollowUpStatus.pending,
+            )
+            .order_by(FollowUpTask.scheduled_at.asc())
+            .limit(1)
+        )
+        return res.scalars().first()
+
+    async def revoke_celery_for_task(self, task: FollowUpTask) -> None:
+        if not task.celery_task_id:
+            return
+        from app.tasks.celery_app import celery_app
+
+        celery_app.control.revoke(task.celery_task_id, terminate=False)

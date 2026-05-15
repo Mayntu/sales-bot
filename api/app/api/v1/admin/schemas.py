@@ -71,3 +71,32 @@ class StatsResponse(BaseModel):
     paid: int  # только PAID
     conversion: float  # manager_handoffs / users_total
     payment_rate: float  # paid / manager_handoffs при manager_handoffs > 0, иначе 0
+
+
+# ── Admin self-debug (переписка с ботом из админского чата) ──────────────────
+
+
+class AdminSelfChatBody(BaseModel):
+    telegram_chat_id: int
+
+
+class RefreshUserResponse(BaseModel):
+    ok: bool
+    deleted: bool  # были ли записи пользователя до удаления
+
+
+class UserSnapshotResponse(BaseModel):
+    telegram_chat_id: int
+    exists: bool
+    state: str | None = None
+    name: str | None = None
+    goal: str | None = None
+    followup_count: int = 0
+    message_count: int = 0
+
+
+class FollowupNowResponse(BaseModel):
+    sent: bool = False
+    message_type: str | None = None  # 2h | 5h | 1d | 3d | 7d | 14d
+    user_state: str | None = None  # когда нет pending задач или нет user
+    user_missing: bool = False

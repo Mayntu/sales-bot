@@ -45,6 +45,9 @@ services:
     build: ./bot
     command: python -m app.main
     env_file: .env
+    environment:
+      # Логи в stdout: смотри «docker compose logs -f bot» или up без флага -d
+      BOT_LOG_LEVEL: INFO
     volumes:
       - ./bot:/app
     depends_on:

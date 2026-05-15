@@ -6,8 +6,7 @@ Executed by worker_followup (concurrency=4, see docker-compose.yml).
 Design:
   - Uses synchronous SQLAlchemy session (psycopg2, pool shared across tasks)
   - Uses synchronous Redis client for club context cache
-  - asyncio.run() is used only for the two I/O-bound calls that have no sync
-    equivalent (OpenAI + python-telegram-bot)
+  - asyncio.run() only for Telegram send (python-telegram-bot async API)
 """
 
 import asyncio
@@ -24,26 +23,11 @@ from app.domain.followup.models import FollowUpStatus, FollowUpTask
 from app.domain.users.models import User
 from app.domain.conversations.models import Message, MessageRole
 from app.cache.club_context import load_club_context_sync
-from app.ai.prompt_builder import build_followup_prompt
-from app.ai.client import AIClient
+from app.ai.followup_scenario import compose_followup_message
 
 log = logging.getLogger(__name__)
 
 settings = get_settings()
-
-# Module-level singleton — initialised once per worker process, not per task.
-_ai_client: AIClient | None = None
-
-
-def _get_ai_client() -> AIClient:
-    global _ai_client
-    if _ai_client is None:
-        _ai_client = AIClient(
-            api_key=settings.openai_api_key,
-            main_model=settings.openai_model,
-            light_model=settings.openai_model_light,
-        )
-    return _ai_client
 
 
 def _get_sync_redis() -> sync_redis.Redis:
@@ -95,18 +79,14 @@ def send_followup(self, task_id: str) -> None:
         club = load_club_context_sync(r)
         r.close()
 
-        prompt = build_followup_prompt(user, club, task.message_type.value)
-
-        result = asyncio.run(
-            _get_ai_client().generate(prompt, dialog, user.state, request_scope="followup")
-        )
+        reply = compose_followup_message(user, club, task.message_type.value, dialog)
 
         # Send via Telegram
         from app.tasks.notifications import _send_telegram_async  # local import
 
-        asyncio.run(_send_telegram_async(user.telegram_chat_id, result.reply))
+        asyncio.run(_send_telegram_async(user.telegram_chat_id, reply))
 
-        db.add(Message(user_id=user.id, role=MessageRole.assistant, content=result.reply))
+        db.add(Message(user_id=user.id, role=MessageRole.assistant, content=reply))
         task.status = FollowUpStatus.sent
         user.followup_count = (user.followup_count or 0) + 1
         db.commit()

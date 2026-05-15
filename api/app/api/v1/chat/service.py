@@ -21,6 +21,7 @@ from datetime import timezone
 import redis.asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.agent_identity import pick_agent_name
 from app.ai.client import AIClient
 from app.ai.prompt_builder import build_system_prompt
 from app.api.v1.chat.schemas import ChatOut
@@ -60,6 +61,9 @@ class ChatService:
 
         # 2. Upsert user
         user = await self._users_svc.get_or_create(telegram_chat_id)
+        agent_nm = pick_agent_name(user.id)
+        if (user.name or "").strip().casefold() == agent_nm.casefold():
+            user.name = None
 
         # 3. Store inbound message and stamp last_message_at
         await self._conv_repo.add_message(user.id, MessageRole.user, message_text)
@@ -77,8 +81,9 @@ class ChatService:
         result = await self._ai.generate(build_system_prompt(user, club), dialog, user.state)
 
         # 7. Persist reply + update user profile
-        if result.client_name:
-            user.name = result.client_name
+        cn = (result.client_name or "").strip()
+        if cn and cn.casefold() != agent_nm.casefold():
+            user.name = cn
         if result.client_goal:
             user.goal = result.client_goal
 

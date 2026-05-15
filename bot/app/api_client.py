@@ -87,3 +87,33 @@ class ApiClient:
             )
             r.raise_for_status()
             return r.json()
+
+    async def admin_refresh_user(self, telegram_chat_id: int) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{self.base_url}/v1/admin/refresh-user",
+                json={"telegram_chat_id": telegram_chat_id},
+                headers=self._admin_headers(),
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def admin_user_state(self, telegram_chat_id: int) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(
+                f"{self.base_url}/v1/admin/user-state",
+                params={"telegram_chat_id": telegram_chat_id},
+                headers=self._admin_headers(),
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def admin_followup_now(self, telegram_chat_id: int) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(
+                f"{self.base_url}/v1/admin/followup-now",
+                json={"telegram_chat_id": telegram_chat_id},
+                headers=self._admin_headers(),
+            )
+            r.raise_for_status()
+            return r.json()

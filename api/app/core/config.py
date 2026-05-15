@@ -1,4 +1,6 @@
 from functools import lru_cache
+
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,8 +11,8 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ''
-    openai_model: str = 'gpt-4o'  # QUALIFY, PRESENT, HANDLE_OBJECTION, CLOSE, follow-ups, …
-    openai_model_light: str = 'gpt-4o-mini'  # только NEW (привет); QUALIFY+ на openai_model
+    openai_model: str = 'gpt-4o'  # основной диалог QUALIFY+
+    openai_model_light: str = 'gpt-4o-mini'  # NEW привет + все follow-up (короткие сообщения по шаблонам)
 
     # PostgreSQL (async — FastAPI; sync URL built at runtime for Celery)
     database_url: str = 'postgresql+asyncpg://gymbot:gymbot@db:5432/gymbot'
@@ -30,6 +32,11 @@ class Settings(BaseSettings):
     # Telegram
     manager_chat_id: int | None = None
     telegram_bot_token: str = ''
+    # chat_id через запятую — для destructive admin (удаление юзера /refresh только этим id)
+    admin_chat_ids: str = Field(
+        default="",
+        validation_alias=AliasChoices("ADMIN_CHAT_IDS", "ADMIN_TELEGRAM_CHAT_IDS"),
+    )
 
     # App
     club_info_path: str = 'club_data/club_info.yaml'
@@ -46,6 +53,14 @@ class Settings(BaseSettings):
 
     def get_agent_names(self) -> list[str]:
         return [n.strip() for n in self.agent_names.split(",") if n.strip()]
+
+    def get_admin_chat_ids(self) -> frozenset[int]:
+        out: list[int] = []
+        for part in self.admin_chat_ids.split(","):
+            part = part.strip()
+            if part.lstrip("-").isdigit():
+                out.append(int(part))
+        return frozenset(out)
 
 
 @lru_cache

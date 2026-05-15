@@ -1,20 +1,13 @@
 """
 prompt_builder.py — системный промпт продажника (сжатый, без дублирования с данными клуба).
+Follow-up тексты собираются на сервере (см. followup_scenario), без отдельного LLM-шага в этом файле.
 """
 
 import uuid
 
+from app.ai.agent_identity import pick_agent_name, safe_client_display_name
 from app.ai.club_context import ClubContext
-from app.core.config import get_settings
 from app.domain.users.models import User, UserState
-
-
-def pick_agent_name(user_id: uuid.UUID) -> str:
-    names = get_settings().get_agent_names()
-    if not names:
-        return "Саша"
-    index = int(user_id.int % len(names))
-    return names[index]
 
 
 # ── ядро (~коротко): роль, тон, формат, стоп-слова, точность, слэнг, JSON ──
@@ -23,7 +16,7 @@ _CORE = """\
 Ты — {agent_name}, подбор абонемента «{gym_name}» (Казахстан), Telegram, цель — довести до покупки. Живой, честный, не корпоратив.
 
 Формат: без ** # и нумерованных списков 1.2.3. (в т.ч. не «1. Золотая 2. Серебро»); конец — вопрос. Эмодзи: в каждом reply 1–3 штуки, не ноль. Вне полного обзора карт — 3–4 предложения; полный обзор по запросу — не урезай ради краткости.
-Имя клиента из блока КЛИЕНТ: если известно — в середину фразы, не в начало; если «пока не знаем» — только «ты», без выдуманного имени.
+Имя клиента из блока КЛИЕНТ: если известно — в середину фразы, не в начало; если «пока не знаем» — только «ты», без выдуманного имени. Запрещено называть клиента твоим именем консультанта ({agent_name}) — это ты, не клиент; в client_name в JSON никогда не подставляй {agent_name} вместо имени клиента.
 
 Своё имя в reply: если в прошлых репликах ассистента ещё не было явно «меня зовут …» или «я …» с именем {agent_name} — в этом reply в первых словах обязательно «меня зовут {agent_name}» или «я {agent_name}»; безликое «я консультант» без имени — запрет. Не путай с обращением к клиенту: строка, начинающаяся с «{agent_name}, …», запрещена.
 Обзор по запросу (в т.ч. «условия», «что у вас», «какие карты/абонементы», «цены», «варианты»): обязательно все три базовые линейки из ДАННЫХ — три абзаца с пустой строкой (Золотая, Серебро+, Серебро), в каждом кратко доступ + одна фраза с тройкой цены; затем отдельным абзацем каждый активный временной оффер из ДАННЫХ (если есть) с тройкой; нельзя ответить только одной-двумя картами/офферами. Без нумерации 1.2.3 и без сплошной простыни.
@@ -89,6 +82,8 @@ next_state: PRESENT|HANDLE_OBJECTION|CLOSE|QUALIFY\
 ━━━ OBJECTION ━━━
 1–3 эмодзи. Если имя ещё не озвучивал в assistant-репликах — в первых словах «меня зовут {agent_name}» или «я {agent_name}».
 
+Обращение к клиенту по имени — только если в блоке КЛИЕНТ имя не «пока не знаем»; запрещено называть клиента «{agent_name}» (это ты, консультант).
+
 Запрос «условия/что есть/варианты» — полный обзор как в ядре, не одна карта.
 
 При назывании цены — то же правило тройки: полная → /12 в мес → в день + сравнение (для базовых карт ориентир как в PRESENT; иначе из данных). При «дорого» и при повторе вариантов — каждый раз снова полная тройка для той суммы, о которой говоришь (акция, оффер, база), не сокращай до одной строки с одной цифрой.
@@ -136,14 +131,6 @@ next_state: DEAD\
 }
 
 
-FOLLOWUP_INSTRUCTIONS: dict[str, str] = {
-    "2h": "2ч молчания: одно короткое сообщение по контексту, без давления, вопрос в конце. Пробная 5к если уместно. Если называешь цену карты/оффера — полная + /12 + в день + сравнение (как в ядре).",
-    "5h": "5ч: зацепи цель/последнее; скидка дня если актуальна; вопрос в конце. Любая цена — тройка как в ядре.",
-    "1d": "Сутки: образ результата под цель; минимальный шаг; вопрос.",
-    "7d": "7д финал: тепло, без обиды, дверь открыта.",
-}
-
-
 def build_system_prompt(user: User, club_context: ClubContext, extra_instruction: str = "") -> str:
     agent_name = pick_agent_name(user.id)
     new_instruction = _STATE_INSTRUCTIONS.get(user.state, "")
@@ -153,24 +140,10 @@ def build_system_prompt(user: User, club_context: ClubContext, extra_instruction
     core = _CORE.format(gym_name=club_context.gym_name, agent_name=agent_name)
     club = _CLUB_BLOCK.format(club_text=club_context.to_prompt_text())
     client = _CLIENT_BLOCK.format(
-        client_name=user.name or "пока не знаем",
+        client_name=safe_client_display_name(user),
         client_goal=user.goal or "пока не выяснена",
         state=user.state.value,
         followup_count=user.followup_count,
     )
     extra = f"\n{extra_instruction}" if extra_instruction else ""
     return f"{core}\n\n{club}\n\n{client}\n\n{new_instruction}{extra}"
-
-
-def build_followup_prompt(user: User, club_context: ClubContext, followup_type: str) -> str:
-    agent_name = pick_agent_name(user.id)
-    core = _CORE.format(gym_name=club_context.gym_name, agent_name=agent_name)
-    club = _CLUB_BLOCK.format(club_text=club_context.to_prompt_text())
-    client = _CLIENT_BLOCK.format(
-        client_name=user.name or "пока не знаем",
-        client_goal=user.goal or "пока не выяснена",
-        state="FOLLOW_UP",
-        followup_count=user.followup_count,
-    )
-    instruction = FOLLOWUP_INSTRUCTIONS.get(followup_type, FOLLOWUP_INSTRUCTIONS["2h"])
-    return f"{core}\n\n{club}\n\n{client}\n\n{instruction}"

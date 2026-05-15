@@ -10,6 +10,9 @@ from fastapi import APIRouter, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin.schemas import (
+    AdminSelfChatBody,
+    FollowupNowResponse,
+    RefreshUserResponse,
     StatsResponse,
     UpdateDiscountsRequest,
     UpdateDiscountsResponse,
@@ -17,6 +20,7 @@ from app.api.v1.admin.schemas import (
     UpdatePriceResponse,
     UpsertTemporaryMembershipsRequest,
     UpsertTemporaryMembershipsResponse,
+    UserSnapshotResponse,
 )
 from app.api.v1.admin.service import AdminService
 from app.core.config import get_settings
@@ -108,3 +112,48 @@ async def stats(
     db: AsyncSession = Depends(get_db),
 ) -> StatsResponse:
     return await AdminService(redis=redis, db=db, yaml_path=get_settings().club_info_path).get_stats()
+
+
+@router.post(
+    "/refresh-user",
+    response_model=RefreshUserResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def refresh_user(
+    body: AdminSelfChatBody,
+    redis: aioredis.Redis = Depends(get_redis_pool),
+    db: AsyncSession = Depends(get_db),
+) -> RefreshUserResponse:
+    return await AdminService(redis=redis, db=db, yaml_path=get_settings().club_info_path).refresh_my_user_record(
+        body.telegram_chat_id
+    )
+
+
+@router.get(
+    "/user-state",
+    response_model=UserSnapshotResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def user_state(
+    telegram_chat_id: int,
+    redis: aioredis.Redis = Depends(get_redis_pool),
+    db: AsyncSession = Depends(get_db),
+) -> UserSnapshotResponse:
+    return await AdminService(redis=redis, db=db, yaml_path=get_settings().club_info_path).snapshot_my_user(
+        telegram_chat_id
+    )
+
+
+@router.post(
+    "/followup-now",
+    response_model=FollowupNowResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def followup_now(
+    body: AdminSelfChatBody,
+    redis: aioredis.Redis = Depends(get_redis_pool),
+    db: AsyncSession = Depends(get_db),
+) -> FollowupNowResponse:
+    return await AdminService(redis=redis, db=db, yaml_path=get_settings().club_info_path).followup_now(
+        body.telegram_chat_id
+    )

@@ -1,4 +1,4 @@
-"""Админ-команды в Telegram (только для chat_id из ADMIN_TELEGRAM_CHAT_IDS)."""
+"""Админ-команды в Telegram (только для chat_id из ADMIN_CHAT_IDS)."""
 
 from __future__ import annotations
 
@@ -36,6 +36,10 @@ def _parse_discount_line(rest: str) -> list[dict]:
 async def cmd_a_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         "Удобная панель с кнопками: /admin\n\n"
+        "Отладка диалога (только админский chat_id в .env):\n"
+        "/refresh — удалить свою запись из БД; следующее сообщение = новый клиент\n"
+        "/state — state, имя, цель, followup_count, число сообщений в истории\n"
+        "/followup_now — немедленно следующий pending follow-up (демо)\n\n"
         "Текстовые команды (меняют club_info.yaml без перезапуска):\n\n"
         "/a_discounts — текущие скидки дня (JSON)\n"
         "/a_discount_set id цена лейбл; id2 цена2 лейбл2 — задать скидки на сегодня (заменяет список)\n"

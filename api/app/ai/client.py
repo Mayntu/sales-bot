@@ -8,10 +8,8 @@ Design decisions:
   - Retries: tenacity retries the raw API call up to 2 times (3 total attempts)
     with exponential backoff. max_retries=0 on the SDK level so tenacity is
     the single source of truth for retry logic.
-  - Model routing: only NEW uses ``openai_model_light`` (e.g. gpt-4o-mini). QUALIFY
-    stays on the main model: the user is still in QUALIFY while the bot gives long
-    card overviews and handles questions, so routing by ``current_state`` would
-    otherwise send almost the whole dialogue through mini.
+  - Routing: NEW uses ``openai_model_light``; основной диалог — ``openai_model``.
+    (Раньше follow-up шёл через light-модель; сейчас follow-up без LLM в коде.)
 """
 
 from __future__ import annotations
@@ -32,7 +30,7 @@ from app.domain.users.models import UserState
 
 log = structlog.get_logger(__name__)
 
-# Только первый этап: привет + имя/цель. QUALIFY+ — main_model (см. docstring модуля).
+# Только первый этап чата: привет + имя/цель. Follow-up всегда light_model отдельно в generate().
 _LIGHT_MODEL_STATES: frozenset[UserState] = frozenset({UserState.NEW})
 
 FALLBACK_REPLY = "Прости, что-то пошло не так. Напиши ещё раз или попробуй чуть позже 🙂"
@@ -71,7 +69,10 @@ class AIClient:
 
     Create once via init_ai_client() and inject with get_ai_client().
     AsyncOpenAI reuses an internal httpx.AsyncClient with connection pooling.
-    Маршрутизация модели по этапу — см. ``_LIGHT_MODEL_STATES`` и Settings.
+        Маршрутизация модели: NEW на light-модели; QUALIFY и дальше — main модель.
+
+        Отдельное правило для ``request_scope="followup"`` (если снова подключат LLM к follow-up):
+        light-модель и меньший лимит токенов.
     """
 
     def __init__(self, api_key: str, *, main_model: str, light_model: str) -> None:
@@ -94,14 +95,20 @@ class AIClient:
         reraise=True,
     )
     async def _call_api(
-        self, system_prompt: str, messages: list[dict], *, model: str
+        self,
+        system_prompt: str,
+        messages: list[dict],
+        *,
+        model: str,
+        max_completion_tokens: int = 600,
+        temperature: float = 0.85,
     ) -> tuple[dict, dict | None]:
         res = await self._client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": system_prompt}, *messages],
             response_format={"type": "json_object"},
-            temperature=0.85,
-            max_tokens=600,
+            temperature=temperature,
+            max_tokens=max_completion_tokens,
         )
         content = res.choices[0].message.content or "{}"
         # OpenAI occasionally wraps JSON in markdown fences despite response_format.
@@ -132,9 +139,22 @@ class AIClient:
         request_scope: str = "chat",
     ) -> AIResult:
         """request_scope distinguishes log source, e.g. ``chat`` vs ``followup``."""
-        model = self._model_for_state(current_state)
+        if request_scope == "followup":
+            model = self._light_model
+            completion_cap = 400
+            temp = 0.38
+        else:
+            model = self._model_for_state(current_state)
+            completion_cap = 600
+            temp = 0.85
         try:
-            data, usage = await self._call_api(system_prompt, messages, model=model)
+            data, usage = await self._call_api(
+                system_prompt,
+                messages,
+                model=model,
+                max_completion_tokens=completion_cap,
+                temperature=temp,
+            )
 
             if usage is not None:
                 log.info(
@@ -184,9 +204,13 @@ class AIClient:
         except Exception:
             proposed = current_state
 
+        next_state = normalize_next_state(current_state, proposed)
+        if request_scope == "followup":
+            next_state = current_state
+
         return AIResult(
             reply=_strip_llm_markdown_plain_text(data.get("reply") or FALLBACK_REPLY),
-            next_state=normalize_next_state(current_state, proposed),
+            next_state=next_state,
             client_name=data.get("client_name") or None,
             client_goal=data.get("client_goal") or None,
             agreed_product=data.get("agreed_product") or None,

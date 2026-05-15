@@ -5,6 +5,7 @@ club_context.py — данные клуба для промпта (сжатый 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -38,6 +39,15 @@ def _inc_short(items: list | None, max_items: int = 2, max_chars: int = 100) -> 
     parts = [_trunc(x, 55) for x in items[:max_items]]
     out = "; ".join(parts)
     return _trunc(out, max_chars)
+
+
+@dataclass(frozen=True)
+class FollowupAnchorCard:
+    membership_id: str
+    display_name: str
+    price_tg: int
+    monthly_tg: int
+    per_day_tg: int
 
 
 class ClubContext(BaseModel):
@@ -150,6 +160,153 @@ class ClubContext(BaseModel):
         lines = ["▌ХУКИ (из конфига, вплетай по ситуации)"]
         for h in hooks:
             lines.append(f"— {_trunc(h, 95)}")
+        return "\n".join(lines)
+
+    def _temporary_membership_active_today(self, t: dict) -> bool:
+        today = date.today()
+        start_s, end_s = t.get("start_date"), t.get("end_date")
+        try:
+            sd = date.fromisoformat(str(start_s)) if start_s else None
+            ed = date.fromisoformat(str(end_s)) if end_s else None
+        except ValueError:
+            return False
+        return (sd is None or sd <= today) and (ed is None or today <= ed)
+
+    def followup_anchor_card(self) -> FollowupAnchorCard | None:
+        today = date.today()
+
+        def _eff_price(mid: str, base: int) -> int:
+            if self.daily_discounts.valid_on == today and self.daily_discounts.discounts:
+                for d in self.daily_discounts.discounts:
+                    if d.membership_id == mid:
+                        return int(d.discounted_price)
+            return base
+
+        gold: dict | None = None
+        for m in self.raw.get("memberships") or []:
+            if m.get("id") == "gold":
+                gold = m
+                break
+        if gold is None:
+            memberships = list(self.raw.get("memberships") or [])
+            gold = memberships[0] if memberships else None
+        if not gold or not gold.get("base_price"):
+            return None
+        mid = str(gold.get("id", "gold"))
+        base_raw = int(gold["base_price"])
+        price = _eff_price(mid, base_raw)
+        nm = str(gold.get("name", "Золотая"))
+        monthly = price // 12
+        per_day = max(1, round(price / 365))
+        return FollowupAnchorCard(
+            membership_id=mid,
+            display_name=nm,
+            price_tg=price,
+            monthly_tg=monthly,
+            per_day_tg=per_day,
+        )
+
+    def has_promo_for_followup_3d(self) -> bool:
+        today = date.today()
+        dd = self.daily_discounts
+        if dd.valid_on == today and dd.discounts:
+            return True
+        for t in self.raw.get("temporary_memberships") or []:
+            if self._temporary_membership_active_today(t):
+                return True
+        return False
+
+    def followup_promo_one_liner(self) -> str | None:
+        today = date.today()
+        dd = self.daily_discounts
+        if dd.valid_on == today and dd.discounts:
+            d = dd.discounts[0]
+            pf = f"{d.discounted_price:,}".replace(",", " ")
+            return f"{_trunc(d.label, 44)} — {pf} тг"
+        for t in self.raw.get("temporary_memberships") or []:
+            if not self._temporary_membership_active_today(t):
+                continue
+            nm = _trunc(str(t.get("name") or t.get("id", "")), 40)
+            pl = self._price_line(t)
+            return f"{nm} ({pl} тг)"
+        return None
+
+    def followup_facts_for_prompt(self) -> str:
+        """
+        Короткий набор фактов для follow-up сообщений (без простыни по всем картам).
+        """
+        lines: list[str] = [f"Клуб: {self.gym_name}"]
+
+        def _effective_base(membership_id: str, base_price: int) -> int:
+            today = date.today()
+            dd = self.daily_discounts
+            if dd.valid_on == today and dd.discounts:
+                for d in dd.discounts:
+                    if d.membership_id == membership_id:
+                        return int(d.discounted_price)
+            return base_price
+
+        gold: dict | None = None
+        for m in self.raw.get("memberships") or []:
+            if m.get("id") == "gold":
+                gold = m
+                break
+        if gold is None:
+            memberships = list(self.raw.get("memberships") or [])
+            gold = memberships[0] if memberships else None
+
+        if gold and gold.get("base_price"):
+            mid = gold.get("id", "gold")
+            base_raw = int(gold["base_price"])
+            price = _effective_base(str(mid), base_raw)
+            nm = gold.get("name", "Золотая")
+            monthly = price // 12
+            per_day = max(1, round(price / 365))
+            lines.append(f"Образец «якорной» карты ({nm}, id={mid}): сумма ~{price:,} тг".replace(",", " "))
+            lines.append(f"  → из неё считай: ~{monthly:,} тг в месяц при /12 рассрочке, ~{per_day:,} тг в день (365)".replace(",", " "))
+
+        today = date.today()
+        dd = self.daily_discounts
+        if dd.valid_on == today and dd.discounts:
+            lines.append(f"Скидки на {today.isoformat()}:")
+            for d in dd.discounts[:3]:
+                pf = f"{d.discounted_price:,}".replace(",", " ")
+                lines.append(f"  • {d.membership_id}: {pf} тг — {_trunc(d.label, 70)}")
+        else:
+            lines.append(f"Отдельных «скидок дня» на {today.isoformat()} в конфиге нет.")
+
+        temps = []
+        for t in self.raw.get("temporary_memberships") or []:
+            start_s, end_s = t.get("start_date"), t.get("end_date")
+            try:
+                sd = date.fromisoformat(str(start_s)) if start_s else None
+                ed = date.fromisoformat(str(end_s)) if end_s else None
+            except ValueError:
+                sd, ed = None, None
+            if (sd is None or sd <= today) and (ed is None or today <= ed):
+                lbl = _trunc(str(t.get("label") or t.get("name", "")), 60)
+                pl = self._price_line(t)
+                temps.append(f"{t.get('name', '')} ({pl} тг) — {lbl}")
+        lines.append(
+            "Активные временные офферы: " + ("; ".join(temps[:2]) if temps else "нет в периоде «сегодня».")
+        )
+
+        hooks = self.raw.get("hooks") or []
+        trial = False
+        for h in hooks:
+            if "5000" in str(h):
+                trial = True
+                break
+        lines.append(
+            "Пробная первой тренировки платная около 5000 тг — как в хуках конфига."
+            if trial
+            else "Пробный визит/цена пробной — смотри блок ДАННЫЕ КЛУБА ниже если нужно (не более одной строки в ответе)."
+        )
+
+        pay = self.raw.get("payment") or {}
+        if inst := pay.get("installment"):
+            lines.append(f"Рассрочка: {inst.get('terms','')} через {inst.get('partners','')}")
+
         return "\n".join(lines)
 
     def _price_line(self, m: dict) -> str:
