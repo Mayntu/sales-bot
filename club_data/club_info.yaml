@@ -74,6 +74,16 @@ memberships:
   - Заморозка до 30 дней
   sauna_access: true
   group_classes_access: false
+- id: silver_plus_monthly
+  name: Серебряная+ помесячно
+  base_price: 40000
+  price_period: monthly
+  access: Все GYM + BIG залы (без BIG+, без групповых)
+  includes:
+  - Безлимитное посещение GYM и BIG залов
+  - Заморозка до 30 дней
+  sauna_access: true
+  group_classes_access: false
 - id: silver
   name: Серебряная карта
   base_price: 100000

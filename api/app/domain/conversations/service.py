@@ -5,7 +5,7 @@ _ALLOWED={
     UserState.QUALIFY:{UserState.QUALIFY,UserState.PRESENT,UserState.HANDLE_OBJECTION},
     UserState.PRESENT:{UserState.PRESENT,UserState.HANDLE_OBJECTION,UserState.CLOSE,UserState.QUALIFY},
     UserState.HANDLE_OBJECTION:{UserState.HANDLE_OBJECTION,UserState.PRESENT,UserState.CLOSE},
-    UserState.CLOSE:{UserState.CLOSE},
+    UserState.CLOSE:{UserState.CLOSE, UserState.HANDLE_OBJECTION},
     UserState.WAITING_PAYMENT:{UserState.WAITING_PAYMENT},
     UserState.PAID:{UserState.PAID},
     UserState.DEAD:{UserState.DEAD},

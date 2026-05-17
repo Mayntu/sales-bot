@@ -118,6 +118,7 @@ class AdminService:
                 "id": m.get("id"),
                 "name": m.get("name"),
                 "base_price": m.get("base_price"),
+                "price_period": m.get("price_period"),
                 "access": m.get("access"),
                 "includes": m.get("includes") or [],
             }

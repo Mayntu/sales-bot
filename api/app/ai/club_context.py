@@ -312,14 +312,15 @@ class ClubContext(BaseModel):
     def _price_line(self, m: dict) -> str:
         mid = m.get("id")
         base = m.get("base_price")
+        monthly_tag = "·мес" if str(m.get("price_period") or "").lower() == "monthly" else ""
         today = date.today()
         if mid and base and self.daily_discounts.valid_on == today and self.daily_discounts.discounts:
             for d in self.daily_discounts.discounts:
                 if d.membership_id == mid:
                     bf = f"{base:,}".replace(",", " ")
                     df = f"{d.discounted_price:,}".replace(",", " ")
-                    return f"{bf}→{df}"
-        return f"{base:,}".replace(",", " ") if base else "?"
+                    return f"{bf}→{df}{monthly_tag}"
+        return (f"{base:,}".replace(",", " ") if base else "?") + monthly_tag
 
 
 class ClubContextLoader:
